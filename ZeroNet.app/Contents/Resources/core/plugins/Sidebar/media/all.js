@@ -114,12 +114,12 @@
       })(this);
       $(window).on("hashchange", (function(_this) {
         return function() {
-          if (window.top.location.hash === "#ZeroNet:Console") {
+          if (window.top.location.hash.startsWith("#ZeroNet:Console")) {
             return _this.open();
           }
         };
       })(this));
-      if (window.top.location.hash === "#ZeroNet:Console") {
+      if (window.top.location.hash.startsWith("#ZeroNet:Console")) {
         setTimeout(((function(_this) {
           return function() {
             return _this.open();
@@ -151,12 +151,17 @@
           tab_type = ref[j];
           tab = $("<a></a>", {
             href: "#",
-            "data-filter": tab_type.filter
+            "data-filter": tab_type.filter,
+            "data-title": tab_type.title
           }).text(tab_type.title);
           if (tab_type.filter === this.tab_active) {
             tab.addClass("active");
           }
           tab.on("click", this.handleTabClick);
+          if (window.top.location.hash.endsWith(tab_type.title)) {
+            this.log("Triggering click on", tab);
+            tab.trigger("click");
+          }
           this.tabs.append(tab);
         }
         this.container.on("mousedown touchend touchcancel", (function(_this) {
@@ -330,7 +335,7 @@
       if (this.filter === "") {
         this.read_size = 32 * 1024;
       } else {
-        this.read_size = 1024 * 1024;
+        this.read_size = 5 * 1024 * 1024;
       }
       return this.loadConsoleText();
     };
@@ -342,6 +347,7 @@
       $("a", this.tabs).removeClass("active");
       elem.addClass("active");
       this.changeFilter(this.tab_active);
+      window.top.location.hash = "#ZeroNet:Console:" + elem.data("title");
       return false;
     };
 
@@ -352,7 +358,6 @@
   window.Console = Console;
 
 }).call(this);
-
 
 /* ---- Menu.coffee ---- */
 
@@ -433,6 +438,40 @@
       return window.visible_menu.hide();
     }
   });
+
+}).call(this);
+
+/* ---- Prototypes.coffee ---- */
+
+
+(function() {
+  String.prototype.startsWith = function(s) {
+    return this.slice(0, s.length) === s;
+  };
+
+  String.prototype.endsWith = function(s) {
+    return s === '' || this.slice(-s.length) === s;
+  };
+
+  String.prototype.capitalize = function() {
+    if (this.length) {
+      return this[0].toUpperCase() + this.slice(1);
+    } else {
+      return "";
+    }
+  };
+
+  String.prototype.repeat = function(count) {
+    return new Array(count + 1).join(this);
+  };
+
+  window.isEmpty = function(obj) {
+    var key;
+    for (key in obj) {
+      return false;
+    }
+    return true;
+  };
 
 }).call(this);
 
@@ -601,9 +640,9 @@ window.initScrollable = function () {
       this.globe = null;
       this.preload_html = null;
       this.original_set_site_info = this.wrapper.setSiteInfo;
-      if (false) {
+      if (window.top.location.hash === "#ZeroNet:OpenSidebar") {
         this.startDrag();
-        this.moved();
+        this.moved("x");
         this.fixbutton_targetx = this.fixbutton_initx - this.width;
         this.stopDrag();
       }
@@ -811,9 +850,9 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
-      return this.tag.find("#privatekey-forgot").off("click, touchend").on("click touchend", (function(_this) {
+      this.tag.find("#privatekey-forget").off("click, touchend").on("click touchend", (function(_this) {
         return function(e) {
-          _this.wrapper.displayConfirm("Remove saved private key for this site?", "Forgot", function(res) {
+          _this.wrapper.displayConfirm("Remove saved private key for this site?", "Forget", function(res) {
             if (!res) {
               return false;
             }
@@ -824,6 +863,7 @@ window.initScrollable = function () {
           return false;
         };
       })(this));
+      return this.tag.find("#browse-files").attr("href", document.location.pathname.replace(/(\/.*?(\/|$)).*$/, "/list$1"));
     };
 
     Sidebar.prototype.animDrag = function(e) {
@@ -980,6 +1020,35 @@ window.initScrollable = function () {
       })(this));
     };
 
+    Sidebar.prototype.handleSiteDeleteClick = function() {
+      var options, question;
+      if (this.wrapper.site_info.privatekey) {
+        question = "Are you sure?<br>This site has a saved private key";
+        options = ["Forget private key and delete site"];
+      } else {
+        question = "Are you sure?";
+        options = ["Delete this site", "Blacklist"];
+      }
+      return this.wrapper.displayConfirm(question, options, (function(_this) {
+        return function(confirmed) {
+          if (confirmed === 1) {
+            _this.tag.find("#button-delete").addClass("loading");
+            return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
+              return document.location = $(".fixbutton-bg").attr("href");
+            });
+          } else if (confirmed === 2) {
+            return _this.wrapper.displayPrompt("Blacklist this site", "text", "Delete and Blacklist", "Reason", function(reason) {
+              _this.tag.find("#button-delete").addClass("loading");
+              _this.wrapper.ws.cmd("siteblockAdd", [_this.wrapper.site_info.address, reason]);
+              return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
+                return document.location = $(".fixbutton-bg").attr("href");
+              });
+            });
+          }
+        };
+      })(this));
+    };
+
     Sidebar.prototype.onOpened = function() {
       var menu;
       this.log("Opened");
@@ -1010,6 +1079,18 @@ window.initScrollable = function () {
             }
             return _this.updateHtmlTag();
           });
+          return false;
+        };
+      })(this));
+      this.tag.find("#button-autodownload_previous").off("click touchend").on("click touchend", (function(_this) {
+        return function() {
+          _this.wrapper.ws.cmd("siteUpdate", {
+            "address": _this.wrapper.site_info.address,
+            "check_files": true
+          }, function() {
+            return _this.wrapper.notifications.add("done-download_optional", "done", "Optional files downloaded", 5000);
+          });
+          _this.wrapper.notifications.add("start-download_optional", "info", "Optional files download started", 5000);
           return false;
         };
       })(this));
@@ -1058,28 +1139,26 @@ window.initScrollable = function () {
       })(this));
       this.tag.find("#button-delete").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          _this.wrapper.displayConfirm("Are you sure?", ["Delete this site", "Blacklist"], function(confirmed) {
-            if (confirmed === 1) {
-              _this.tag.find("#button-delete").addClass("loading");
-              return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
-                return document.location = $(".fixbutton-bg").attr("href");
-              });
-            } else if (confirmed === 2) {
-              return _this.wrapper.displayPrompt("Blacklist this site", "text", "Delete and Blacklist", "Reason", function(reason) {
-                _this.tag.find("#button-delete").addClass("loading");
-                _this.wrapper.ws.cmd("siteblockAdd", [_this.wrapper.site_info.address, reason]);
-                return _this.wrapper.ws.cmd("siteDelete", _this.wrapper.site_info.address, function() {
-                  return document.location = $(".fixbutton-bg").attr("href");
-                });
-              });
-            }
-          });
+          _this.handleSiteDeleteClick();
           return false;
         };
       })(this));
       this.tag.find("#checkbox-owned").off("click touchend").on("click touchend", (function(_this) {
         return function() {
-          return _this.wrapper.ws.cmd("siteSetOwned", [_this.tag.find("#checkbox-owned").is(":checked")]);
+          var owned;
+          owned = _this.tag.find("#checkbox-owned").is(":checked");
+          return _this.wrapper.ws.cmd("siteSetOwned", [owned], function(res_set_owned) {
+            _this.log("Owned", owned);
+            if (owned) {
+              return _this.wrapper.ws.cmd("siteRecoverPrivatekey", [], function(res_recover) {
+                if (res_recover === "ok") {
+                  return _this.wrapper.notifications.add("recover", "done", "Private key recovered from master seed", 5000);
+                } else {
+                  return _this.log("Unable to recover private key: " + res_recover.error);
+                }
+              });
+            }
+          });
         };
       })(this));
       this.tag.find("#checkbox-autodownloadoptional").off("click touchend").on("click touchend", (function(_this) {
@@ -1344,6 +1423,7 @@ window.initScrollable = function () {
   window.transitionEnd = 'transitionend webkitTransitionEnd oTransitionEnd otransitionend';
 
 }).call(this);
+
 
 /* ---- morphdom.js ---- */
 
